@@ -37,15 +37,18 @@ PLAN YOUR NEXT MOVE:
 MEMORY OF PREVIOUS STEPS:
 {MEMORY}
 
+Example for simple task: {{"reasoning": "The instruction is to find the TV. I see what appears to be a TV on a stand through path 2. Since my task is to find the TV, I should go that way.", "action": "2", "progress": "TV spotted, moving toward it", "landmarks": "black TV, brown couch, yellow coffee table"}}
+
+Example for complex task: {{"reasoning": "The instruction is to go straight in the hallway until the end, then turn left to find the TV. Given previous steps, I am still in the hallway. I should go straight until the end. Path 1 leads straight ahead which matches the first part of my instructions.", "action": "1", "progress": "Follwoing first part of the instruction to go straight in the hallway", "landmarks": "Hallway, red picture frames"}}
+
+Example for complex task: {{"reasoning": "The instruction is to go straight in the hallway until the end, then turn left to find the TV. Given previous steps, I am at the end of the hallway. I should turn left to find the TV. Path 2 leads left which matches the next part of my instructions.", "action": "2", "progress": "Reach the end of the hallway, now turn left to find the TV", "landmarks": "Hallway, red picture frames"}}
+
 Output your response as a JSON object with these keys:
 "reasoning": Your analysis of the current situation and plan
 "action": The chosen path number as a string (e.g., "1", "2", "3") or "0" to turn around
 "progress": Brief description of your task progress (e.g., "Found kitchen, looking for TV")
 "landmarks": Key objects or features you've observed
 
-Example for simple task: {{"reasoning": "I see what appears to be a TV on a stand through path 2. Since my task is to find the TV, I should go that way.", "action": "2", "progress": "TV spotted, moving toward it", "landmarks": "black TV, brown couch, yellow coffee table"}}
-
-Example for complex task: {{"reasoning": "I'm in a hallway and need to go straight until the end, then turn left to find the TV. Path 1 leads straight ahead which matches the first part of my instructions.", "action": "1", "progress": "Following hallway straight as instructed", "landmarks": "Hallway, red picture frames"}}
 """
 
 class VLMNavigationAgent:
@@ -59,6 +62,7 @@ class VLMNavigationAgent:
         self.step_number = 0
         self.completed = False
         self.vlm_output_str = ""
+        self.last_action_was_turn_around = False  # Track if the last action was a turn around
 
         # for action proposal API
         self.min_angle = 20
@@ -276,6 +280,31 @@ class VLMNavigationAgent:
             result["action_chosen"] = action_chosen
             result["progress"] = progress
             result["landmarks"] = landmarks
+            
+            # Handle consecutive turn around constraint
+            if action_chosen and action_chosen != "done":
+                action_number = int(action_chosen)
+                
+                # Check if this is a second consecutive turn around
+                if action_number == 0 and self.last_action_was_turn_around:
+                    # Get other available actions
+                    other_actions = [a for a in actions_info if a["action_number"] != 0]
+                    
+                    if other_actions:
+                        # Randomly choose another action
+                        import random
+                        random_action = random.choice(other_actions)
+                        action_number = random_action["action_number"]
+                        action_chosen = str(action_number)
+                        reasoning += f" [OVERRIDE: Avoiding consecutive turn arounds. Randomly chose action {action_number} instead.]"
+                    else:
+                        # No other actions available, keep the turn around
+                        reasoning += " [NOTE: Forced to turn around again as no other actions available.]"
+                
+                # Record if this action is a turn around for next time
+                self.last_action_was_turn_around = (action_number == 0)
+                result["action_chosen"] = action_chosen
+                result["reasoning"] = reasoning
             
             # Record action
             action_record = ActionRecord(

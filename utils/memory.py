@@ -99,7 +99,7 @@ class NavigationMemory:
             # Add reasoning summary (limited to keep memory concise)
             if action.reasoning:
                 # Truncate reasoning to keep it concise
-                max_reasoning_len = 100
+                max_reasoning_len = 200
                 reasoning_summary = action.reasoning[:max_reasoning_len] + "..." if len(action.reasoning) > max_reasoning_len else action.reasoning
                 action_string += f"Reasoning: {reasoning_summary} | "
             

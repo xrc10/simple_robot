@@ -220,11 +220,11 @@ def run_simulation(floor_id, model_id, api_url, target, max_steps, max_distance_
 
 def main():
     parser = argparse.ArgumentParser(description="VLM Navigation Simulation")
-    parser.add_argument("--floor_id", type=str, default="FloorPlan_Train1_5", help="Floor ID for simulation")
+    parser.add_argument("--floor_id", type=str, default="FloorPlan10", help="Floor ID for simulation")
     parser.add_argument("--model_id", type=str, default="Pro/Qwen/Qwen2.5-VL-7B-Instruct", help="Model ID for VLM")
     parser.add_argument("--api_url", type=str, default="http://10.8.25.28:8075/generate_action_proposals", help="API URL for VLM")
-    parser.add_argument("--target", type=str, default="find TV", help="Target location")
-    parser.add_argument("--max_steps", type=int, default=20, help="Maximum simulation steps")
+    parser.add_argument("--target", type=str, default="find a shelf with glass bottle on it", help="Target location")
+    parser.add_argument("--max_steps", type=int, default=50, help="Maximum simulation steps")
     parser.add_argument("--max_distance", type=float, default=1.0, help="Maximum distance to move")
     
     args = parser.parse_args()
