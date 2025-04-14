@@ -9,13 +9,14 @@ import numpy as np
 
 class VLM(object):
 
-    def __init__(self, cfg_path):
+    def __init__(self, cfg_path, model_id):
         with open(cfg_path, "r") as f:
             llm_config = yaml.safe_load(f)
 
         self.client = OpenAI(api_key=llm_config["SiliconCloud"]["api_key"], 
                             base_url=llm_config["SiliconCloud"]["base_url"])
-        
+        self.prompt_history = []  # Store history of prompts and responses
+        self.model_id = model_id
 
     def convert_image_to_webp_base64(self, image_data):
         # check if the image is a path or CV2 image, if it is a path open it with PIL , if it is a CV2 image convert it to base64
@@ -39,6 +40,9 @@ class VLM(object):
         
         return base64_str
     
+    def get_response(self, image_data, prompt, stream=True, temperature=1.0, top_p=0.9, max_tokens=None):
+        return self.run(image_data, self.model_id, prompt, stream, temperature, top_p, max_tokens)
+
     def run(self, image_data, model_id, prompt, stream=True, temperature=1.0, top_p=0.9, max_tokens=None):
         if type(image_data) is list:
             base64_images = [self.convert_image_to_webp_base64(image) for image in image_data]
@@ -65,7 +69,18 @@ class VLM(object):
             if chunk.choices[0].delta.content:
                 response_string += chunk.choices[0].delta.content
 
+        # Store the prompt and response in history
+        self.prompt_history.append({
+            "prompt": prompt,
+            "response": response_string,
+            "images": image_data if isinstance(image_data, list) else [image_data],
+            "model_id": model_id
+        })
+
         return response_string
+
+    def get_prompt_history(self):
+        return self.prompt_history
 
 
 if __name__ == "__main__":

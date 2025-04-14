@@ -13,7 +13,7 @@ class SimpleMemory:
         self.max_memory_size = max_memory_size
         self.action_history: List[Dict[str, Any]] = []
         self.explored_areas = set()  # Track explored areas to avoid revisiting
-        self.repeating_pattern_threshold = 3  # Number of repeated actions to consider as a pattern
+        self.repeating_pattern_threshold = 3  # Number of recent actions to check for repeating patterns
         self.completion_checks: List[Dict[str, Any]] = []  # Store task completion checks
         
     def add_action(self, action_info: Dict[str, Any]) -> None:
@@ -22,7 +22,8 @@ class SimpleMemory:
         
         Args:
             action_info: Dictionary containing action details including:
-                        - action_number: The action taken
+                        - turning_degree: The degree of rotation (negative for left, positive for right)
+                        - move_distance: The distance moved forward in meters (if any)
                         - reasoning: The reasoning behind the action
                         - step_number: The step number when action was taken
         """
@@ -62,7 +63,7 @@ class SimpleMemory:
         
     def is_repeating_pattern(self) -> bool:
         """
-        Check if the agent is stuck in a repeating pattern of actions.
+        Check if the recent actions form a repeating pattern.
         
         Returns:
             bool: True if a repeating pattern is detected
@@ -70,10 +71,11 @@ class SimpleMemory:
         if len(self.action_history) < self.repeating_pattern_threshold:
             return False
             
-        recent_actions = [action["action_number"] for action in self.action_history[-self.repeating_pattern_threshold:]]
-        return len(set(recent_actions)) == 1  # All actions are the same
+        recent_actions = self.action_history[-self.repeating_pattern_threshold:]
+        # Check if all actions in the recent sequence are the same
+        return all(action["action_number"] == recent_actions[0]["action_number"] for action in recent_actions)
         
-    def get_memory_summary(self, last_n: int = 5) -> str:
+    def get_memory_summary(self, last_n: int = 5, include_action_reasoning: bool = False, include_completion_checks: bool = False) -> str:
         """
         Generate a summary of the memory for the VLM.
         
@@ -85,16 +87,29 @@ class SimpleMemory:
             
         summary = "Previous Actions:\n"
         for action in self.action_history[-last_n:]:
-            summary += f"- Step {action['step_number']}: Action {action['action_number']} (Reasoning: {action['reasoning']})\n"
+            # Format turning direction and degree
+            turning_degree = action["turning_degree"]
+            if turning_degree == 180:
+                turn_desc = "turned around"
+            else:
+                direction = "left" if turning_degree < 0 else "right"
+                turn_desc = f"turned {direction} by {abs(turning_degree)} degrees"
             
-        if self.completion_checks:
+            # Format movement
+            move_desc = ""
+            if action["move_distance"] is not None:
+                move_desc = f" and moved forward {action['move_distance']:.2f} meters"
+            
+            summary += f"- Step {action['step_number']}: {turn_desc}{move_desc}"
+            if include_action_reasoning:
+                summary += f" (Reasoning: {action['reasoning']})"
+            summary += "\n"
+            
+        if self.completion_checks and include_completion_checks:
             summary += "\nRecent Task Completion Checks:\n"
             for check in self.completion_checks[-last_n:]:
                 status = "Completed" if check['completed'] else "Not Completed"
                 summary += f"- Step {check['step_number']}: {status} (Reasoning: {check['reasoning']})\n"
-            
-        if self.is_repeating_pattern():
-            summary += "\nWARNING: Agent appears to be stuck in a repeating pattern of actions.\n"
             
         return summary
         

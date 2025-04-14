@@ -80,3 +80,11 @@ class ThorEnvDogView(object):
             event = self.controller.step(action=action)
         
         return event
+
+    def get_observation(self):
+        return self.controller.last_event.frame
+    
+    def get_depth(self):
+        return self.controller.last_event.depth_frame
+    
+    
