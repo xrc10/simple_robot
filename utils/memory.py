@@ -42,7 +42,9 @@ class NavigationMemory:
     def add_completion_check(self, check: CompletionCheck):
         """Add a completion check to memory"""
         self.completion_checks.append(check)
-        logger.info(f"Added completion check: {check}")
+        check_without_images = check.__dict__
+        check_without_images.pop('images')
+        logger.info(f"Added completion check: {check_without_images}")
     
     def add_images(self, augmented: np.ndarray, complete: np.ndarray, depth: np.ndarray):
         """Add images to memory"""
@@ -63,7 +65,7 @@ class NavigationMemory:
     def get_last_completion_check(self) -> Optional[CompletionCheck]:
         """Get the last completion check"""
         return self.completion_checks[-1] if self.completion_checks else None
-    
+
     def clear(self):
         """Clear all memory"""
         self.action_memory.clear()

@@ -16,7 +16,7 @@ def depth_to_heatmap(depth):
     """Convert depth array to heatmap visualization"""
     depth_normalized = cv2.normalize(depth, None, 0, 255, cv2.NORM_MINMAX)
     depth_uint8 = depth_normalized.astype(np.uint8)
-    return cv2.applyColorMap(depth_uint8, cv2.COLOR_MAP_JET)
+    return cv2.applyColorMap(depth_uint8, cv2.COLORMAP_JET)
 
 def create_combined_image(augmented_img, depth_img, width, height):
     """Create a combined image with augmented view and depth map side by side"""

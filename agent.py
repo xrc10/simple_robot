@@ -43,8 +43,8 @@ class VLMNavigationAgent:
         self.view = None
         self.depth = None
         self.last_actions_info = None
-        self.last_n_for_summary = 5
-        self.last_n_for_done = 3  # Number of recent actions/images to consider for task completion check
+        self.last_n_for_action_choice = 5
+        self.last_n_for_completion_check = 3  # Number of recent actions/images to consider for task completion check
         self.setup_views_directory()
 
     def setup_views_directory(self):
@@ -140,7 +140,7 @@ class VLMNavigationAgent:
 
     def check_task_completion(self, target: str, current_view: np.ndarray) -> Tuple[bool, str]:
         """Check if the navigation task is complete"""
-        completion_prompt = f"""You are a robot navigating a house. Your task is to find: {target}
+        completion_prompt = f"""You are a robot navigating a house. Your task is: {target}
         Look at the current view and determine if you have completed the task.
         Output your response as a JSON object with two keys:
         - "completed" (boolean): true if the task is complete, false otherwise
@@ -165,31 +165,59 @@ class VLMNavigationAgent:
             )
             self.memory.add_completion_check(check)
             
-            return completed, reasoning
+            return completed, reasoning, completion_prompt, completion_check, completion_data
         except json.JSONDecodeError:
             logger.error("Failed to parse completion check response")
             return False, "Failed to parse completion check response"
 
-    def step(self, target: str, task_prompt: str, max_steps: int) -> Tuple[Optional[np.ndarray], Optional[List[Dict[str, Any]]], str, str, Optional[np.ndarray], bool]:
+    def step(self, target: str, task_prompt: str, max_steps: int) -> Dict[str, Any]:
         """Execute one step of navigation"""
+        result = {
+            "augmented_view": None,
+            "current_view": None,
+            "depth": None,
+            "actions_info": None,
+            "reasoning": "",
+            "action_chosen": "",
+            "new_view": None,
+            "completed": False,
+            "vlm_prompt": "",
+            "vlm_output_str": "",
+            "completion_prompt": "",
+            "completion_output": "",
+            "completion_parsed_result": None,
+            "failed_action": None,
+            "completion_reasoning": ""
+        }
+        
         if self.completed or self.step_number >= max_steps:
-            return None, None, "", "", None, self.completed
+            result["completed"] = self.completed
+            return result
         
         try:
             # Get current view and depth
             current_view = self.env.get_observation()
             depth = self.env.get_depth()
+            result["current_view"] = current_view
+            result["depth"] = depth
             
             # Get action proposals
             augmented_view, actions_info = self.get_action_proposals(current_view)
+            result["augmented_view"] = augmented_view
+            result["actions_info"] = actions_info
             
             # Format actions for prompt
             actions_str = ", ".join([f"{a['action_number']}" for a in actions_info])
             formatted_prompt = task_prompt.format(TARGET=target, ACTIONS=actions_str)
+            result["vlm_prompt"] = formatted_prompt
             
             # Get VLM response
             self.vlm_output_str = self.model.get_response(augmented_view, formatted_prompt)
+            result["vlm_output_str"] = self.vlm_output_str
+            
             reasoning, action_chosen = self.parse_vlm_output(self.vlm_output_str)
+            result["reasoning"] = reasoning
+            result["action_chosen"] = action_chosen
             
             # Record action
             action_record = ActionRecord(
@@ -207,29 +235,38 @@ class VLMNavigationAgent:
                 action_number = int(action_chosen)
                 action_info = next((a for a in actions_info if a["action_number"] == action_number), None)
                 augmented_view = draw_action_overlay(augmented_view, action_info)
+                result["augmented_view"] = augmented_view
 
             # Store images, now the agumented_view has draw action overlay (if action is chosen)
             self.memory.add_images(augmented_view, current_view, depth)
             
             # Execute action and get new view
-            new_view = None
             if action_chosen and action_chosen != "done":
                 try:
                     event = self.execute_action(int(action_chosen), actions_info)
                     new_view = event.frame
+                    result["new_view"] = new_view
                 except Exception as e:
                     logger.error(f"Failed to execute action: {str(e)}")
-                    self.memory.add_failed_action({
+                    failed_action = {
                         "step": self.step_number,
                         "type": "action_execution",
                         "error": str(e),
                         "action_number": action_chosen,
                         "vlm_prompt": formatted_prompt,
                         "vlm_response": self.vlm_output_str
-                    })
+                    }
+                    self.memory.add_failed_action(failed_action)
+                    result["failed_action"] = failed_action
             
             # Check task completion
-            completed, completion_reasoning = self.check_task_completion(target, current_view)
+            completed, completion_reasoning, completion_prompt, completion_check, completion_data = self.check_task_completion(target, current_view)
+            result["completed"] = completed
+            result["completion_reasoning"] = completion_reasoning
+            result["completion_prompt"] = completion_prompt
+            result["completion_output"] = completion_check
+            result["completion_parsed_result"] = completion_data
+            
             if completed:
                 self.completed = True
                 completion_record = ActionRecord(
@@ -240,13 +277,16 @@ class VLMNavigationAgent:
                 self.memory.add_action(completion_record)
             
             self.step_number += 1
-            return augmented_view, actions_info, reasoning, action_chosen, new_view, completed
+            return result
             
         except Exception as e:
             logger.error(f"Error during step: {str(e)}")
-            self.memory.add_failed_action({
+            failed_action = {
                 "step": self.step_number,
                 "type": "step_execution",
                 "error": str(e)
-            })
-            return None, None, str(e), None, None, False
+            }
+            self.memory.add_failed_action(failed_action)
+            result["failed_action"] = failed_action
+            result["reasoning"] = str(e)
+            return result

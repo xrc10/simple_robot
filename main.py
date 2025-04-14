@@ -37,18 +37,20 @@ def depth_to_heatmap(depth):
     depth_uint8 = depth_normalized.astype(np.uint8)
     return cv2.applyColorMap(depth_uint8, cv2.COLORMAP_JET)
 
-def save_step_data(step_number, view, depth, new_view, vlm_prompt, vlm_output_str, parsed_result):
+def save_step_data(step_number, view, depth, new_view, vlm_prompt, vlm_output_str, parsed_result, completion_prompt=None, completion_output=None, completion_parsed_result=None):
     """Save all data for a simulation step to the views directory."""
     # Create step directory
     step_dir = os.path.join('views', f'step_{step_number}')
     os.makedirs(step_dir, exist_ok=True)
     
     # Save images
-    cv2.imwrite(os.path.join(step_dir, 'augmented_view.jpg'), view)
+    if view is not None:
+        cv2.imwrite(os.path.join(step_dir, 'augmented_view.jpg'), view)
     
     # Save depth as heatmap
-    depth_heatmap = depth_to_heatmap(depth)
-    cv2.imwrite(os.path.join(step_dir, 'depth.jpg'), depth_heatmap)
+    if depth is not None:
+        depth_heatmap = depth_to_heatmap(depth)
+        cv2.imwrite(os.path.join(step_dir, 'depth.jpg'), depth_heatmap)
     
     # Save new view if available
     if new_view is not None:
@@ -64,6 +66,19 @@ def save_step_data(step_number, view, depth, new_view, vlm_prompt, vlm_output_st
     # Save parsed JSON result
     with open(os.path.join(step_dir, 'parsed_result.json'), 'w') as f:
         json.dump(parsed_result, f, indent=2)
+    
+    # Save completion data if available
+    if completion_prompt is not None:
+        with open(os.path.join(step_dir, 'completion_prompt.txt'), 'w') as f:
+            f.write(completion_prompt)
+    
+    if completion_output is not None:
+        with open(os.path.join(step_dir, 'completion_output.txt'), 'w') as f:
+            f.write(completion_output)
+    
+    if completion_parsed_result is not None:
+        with open(os.path.join(step_dir, 'completion_parsed_result.json'), 'w') as f:
+            json.dump(completion_parsed_result, f, indent=2)
     
     # Save a combined image for easier visualization
     if view is not None and depth is not None:
@@ -103,7 +118,7 @@ def run_simulation(floor_id, model_id, api_url, target, task_prompt, max_steps, 
     
     # Run simulation steps
     step_number = 0
-    completed = False
+    simulation_completed = False
     
     print(f"Starting simulation with target: {target}")
     print(f"Task prompt: {task_prompt}")
@@ -117,39 +132,46 @@ def run_simulation(floor_id, model_id, api_url, target, task_prompt, max_steps, 
             depth_heatmap = depth_to_heatmap(agent.depth)
             cv2.imwrite(os.path.join(initial_dir, 'initial_depth.jpg'), depth_heatmap)
     
-    while step_number < max_steps and not completed:
+    while step_number < max_steps and not simulation_completed:
         print(f"\nExecuting step {step_number + 1}...")
         
-        # Execute one step of the navigation
-        augmented_view, actions_info, reasoning, action_chosen, new_view, is_completed = agent.step(
-            target,
-            task_prompt,
-            max_steps
-        )
+        # Execute one step of the navigation and get all results in a dictionary
+        step_result = agent.step(target, task_prompt, max_steps)
         
-        # Get the VLM prompt and output from agent
-        vlm_prompt = agent.memory.get_last_vlm_prompt() if hasattr(agent.memory, 'get_last_vlm_prompt') else None
-        vlm_output_str = agent.vlm_output_str
+        # Extract the relevant data from the result
+        augmented_view = step_result["augmented_view"]
+        depth = agent.env.get_depth()
+        new_view = step_result["new_view"]
+        vlm_prompt = step_result["vlm_prompt"]
+        vlm_output_str = step_result["vlm_output_str"]
+        reasoning = step_result["reasoning"]
+        action_chosen = step_result["action_chosen"]
+        completion_prompt = step_result["completion_prompt"]
+        completion_output = step_result["completion_output"]
+        completion_parsed_result = step_result["completion_parsed_result"]
         
-        # Parse the VLM output using agent's method
-        reasoning, action = agent.parse_vlm_output(vlm_output_str)
-        parsed_result = {"reasoning": reasoning, "action": action}
+        # Create parsed result for saving
+        parsed_result = {"reasoning": reasoning, "action": action_chosen}
         
         # Save all data for this step
         save_step_data(
             step_number,
             augmented_view,
-            agent.env.get_depth(),
+            depth,
             new_view,
             vlm_prompt,
             vlm_output_str,
-            parsed_result
+            parsed_result,
+            completion_prompt,
+            completion_output,
+            completion_parsed_result
         )
         
         # Check if task is completed
-        if is_completed:
-            completed = True
+        if step_result["completed"]:
+            simulation_completed = True
             print(f"Task completed successfully at step {step_number + 1}!")
+            print(f"Completion reasoning: {step_result['completion_reasoning']}")
             break
             
         # Check if we have a valid action and view
@@ -162,17 +184,9 @@ def run_simulation(floor_id, model_id, api_url, target, task_prompt, max_steps, 
         print(f"Reasoning: {reasoning}")
         
         # Print any failed actions if available
-        if hasattr(agent, 'failed_actions') and agent.failed_actions:
-            for failed_action in agent.failed_actions:
-                print(f"Failed action: {failed_action.action_number}, Reason: {failed_action.reason}")
-        
-        # Record completion check if available
-        if hasattr(agent.memory, 'completion_checks') and agent.memory.completion_checks:
-            latest_check = agent.memory.get_last_completion_check()
-            if latest_check:
-                print(f"Completion check: {latest_check.is_completed}")
-                if latest_check.is_completed:
-                    print(f"Completion reasoning: {latest_check.reasoning}")
+        if step_result["failed_action"]:
+            print(f"Failed action: {step_result['failed_action']['action_number'] if 'action_number' in step_result['failed_action'] else 'unknown'}")
+            print(f"Reason: {step_result['failed_action']['error']}")
         
         step_number += 1
                 
@@ -184,12 +198,12 @@ def run_simulation(floor_id, model_id, api_url, target, task_prompt, max_steps, 
     print(f"Simulation video saved to {video_path}")
     
     # Final status
-    if completed:
+    if simulation_completed:
         print("Simulation completed successfully!")
     else:
         print(f"Simulation ended after {step_number} steps without completion.")
     
-    return completed, step_number
+    return simulation_completed, step_number
 
 def main():
     parser = argparse.ArgumentParser(description="VLM Navigation Simulation")
