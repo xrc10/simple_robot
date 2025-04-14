@@ -12,17 +12,6 @@ from agent import VLMNavigationAgent
 from utils.video_utils import create_simulation_video
 from utils.logger import logger
 
-TASK_PROMT = """
-You are a robot navigating a house. You see an image with numbered paths representing possible directions.
-Your task is to follow these navigation instructions: '{TARGET}'
-First, briefly describe what you see in the current view (e.g., "I see a kitchen with a counter and cabinets").
-Then analyze the available paths ({ACTIONS}) and choose the best path number to follow the instructions.
-If no path seems helpful, choose '0' to turn around.
-Output your response as a JSON object with two keys: "reasoning" (your description and reasoning) and "action" (the chosen number as a string or '0').
-Example: {{"reasoning": "I see a kitchen with a counter and cabinets. The instructions say to go left and then find the fridge. Path 3 leads to the left, which matches the first part of the instructions.", "action": "3"}}
-Example: {{"reasoning": "I see a dead end with no clear paths forward. I should turn around to explore other directions.", "action": "0"}}
-"""
-
 def setup_views_directory():
     """Ensure the views directory is ready for storing images."""
     if not os.path.exists('views'):
@@ -101,7 +90,7 @@ def save_step_data(step_number, view, depth, new_view, vlm_prompt, vlm_output_st
         # Save combined image
         cv2.imwrite(os.path.join(step_dir, 'combined.jpg'), combined)
 
-def run_simulation(floor_id, model_id, api_url, target, task_prompt, max_steps, max_distance_to_move):
+def run_simulation(floor_id, model_id, api_url, target, max_steps, max_distance_to_move):
     """Run the navigation simulation and save results."""
     # Setup the views directory
     setup_views_directory()
@@ -121,7 +110,6 @@ def run_simulation(floor_id, model_id, api_url, target, task_prompt, max_steps, 
     simulation_completed = False
     
     print(f"Starting simulation with target: {target}")
-    print(f"Task prompt: {task_prompt}")
     
     # Display initial view if available
     if hasattr(agent, 'view') and agent.view is not None:
@@ -230,7 +218,6 @@ def main():
         model_id=args.model_id,
         api_url=args.api_url,
         target=args.target,
-        task_prompt=TASK_PROMT,
         max_steps=args.max_steps,
         max_distance_to_move=args.max_distance,
     )

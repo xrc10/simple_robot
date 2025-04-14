@@ -16,6 +16,17 @@ from utils.image_utils import convert_image_to_base64
 from utils.visualization import draw_action_overlay
 from utils.logger import logger
 
+TASK_PROMPT = """
+You are a robot navigating a house. You see an image with numbered paths representing possible directions.
+Your task is to follow these navigation instructions: '{TARGET}'
+First, briefly describe what you see in the current view (e.g., "I see a kitchen with a counter and cabinets").
+Then analyze the available paths ({ACTIONS}) and choose the best path number to follow the instructions.
+If no path seems helpful, choose '0' to turn around.
+Output your response as a JSON object with two keys: "reasoning" (your description and reasoning) and "action" (the chosen number as a string or '0').
+Example: {{"reasoning": "I see a kitchen with a counter and cabinets. The instructions say to go left and then find the fridge. Path 3 leads to the left, which matches the first part of the instructions.", "action": "3"}}
+Example: {{"reasoning": "I see a dead end with no clear paths forward. I should turn around to explore other directions.", "action": "0"}}
+"""
+
 class VLMNavigationAgent:
     """Agent for VLM-based navigation"""
     def __init__(self, env: ThorEnvDogView, model_id: str, api_url: str, max_distance_to_move: float = 1.0):
@@ -170,7 +181,7 @@ class VLMNavigationAgent:
             logger.error("Failed to parse completion check response")
             return False, "Failed to parse completion check response"
 
-    def step(self, target: str, task_prompt: str, max_steps: int) -> Dict[str, Any]:
+    def step(self, target: str, max_steps: int) -> Dict[str, Any]:
         """Execute one step of navigation"""
         result = {
             "augmented_view": None,
@@ -208,7 +219,7 @@ class VLMNavigationAgent:
             
             # Format actions for prompt
             actions_str = ", ".join([f"{a['action_number']}" for a in actions_info])
-            formatted_prompt = task_prompt.format(TARGET=target, ACTIONS=actions_str)
+            formatted_prompt = TASK_PROMPT.format(TARGET=target, ACTIONS=actions_str)
             result["vlm_prompt"] = formatted_prompt
             
             # Get VLM response
