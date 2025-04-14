@@ -16,7 +16,7 @@ import tempfile
 from functools import lru_cache
 from utils.config import setup_sidebar_config, initialize_session_state
 from utils.visualization import display_step_images, display_completion_check, display_failed_action
-from utils.video_utils import create_simulation_video
+from utils.image_utils import depth_to_heatmap
 from utils.logger import logger
 
 def create_simulation_video(agent, output_path='simulation_video.mp4'):
@@ -60,7 +60,8 @@ def create_simulation_video(agent, output_path='simulation_video.mp4'):
             # Add step number and action
             step_text = f"Step {i+1}"
             if i < len(agent.action_memory):
-                action_text = f"Action: {agent.action_memory[i]}"
+                action = agent.action_memory[i]
+                action_text = f"Action: {action.action_number if hasattr(action, 'action_number') else action}"
                 draw.text((10, 10), step_text, (255, 255, 255), font=font)
                 draw.text((10, 50), action_text, (255, 255, 255), font=font)
             
@@ -132,12 +133,23 @@ def main():
             step_container.subheader(f"Step {st.session_state.agent.step_number + 1}")
 
             try:
-                # Execute one step of the navigation
-                augmented_view, actions_info, reasoning, action_chosen, new_view, is_completed = st.session_state.agent.step(
+                # Execute one step of the navigation - updated to match main.py style
+                step_result = st.session_state.agent.step(
                     config.target,
                     config.task_prompt,
                     config.max_steps
                 )
+                
+                # Extract data from the step result
+                augmented_view = step_result.get("augmented_view")
+                new_view = step_result.get("new_view")
+                reasoning = step_result.get("reasoning", "")
+                action_chosen = step_result.get("action_chosen", "")
+                is_completed = step_result.get("completed", False)
+                vlm_output_str = step_result.get("vlm_output_str", "")
+                progress = step_result.get("progress", "")
+                landmarks = step_result.get("landmarks", "")
+                failed_action = step_result.get("failed_action")
 
                 if augmented_view is None:  # Simulation completed or max steps reached
                     st.session_state.running = False
@@ -159,16 +171,28 @@ def main():
                 # Display model's raw output and choice of action
                 with col2:
                     step_container.text("VLM Raw Output:")
-                    step_container.code(st.session_state.agent.vlm_output_str, language=None)
-                    step_container.markdown("**VLM Reasoning (from JSON):**")
+                    step_container.code(vlm_output_str, language=None)
+                    step_container.markdown("**VLM Reasoning:**")
                     step_container.info(reasoning)
-                    step_container.text(f"VLM Chose Action (from JSON): {action_chosen}")
+                    step_container.text(f"VLM Chose Action: {action_chosen}")
+                    
+                    if progress:
+                        step_container.markdown("**Progress:**")
+                        step_container.info(progress)
+                    
+                    if landmarks:
+                        step_container.markdown("**Landmarks:**")
+                        step_container.info(landmarks)
 
                     # Display completion check information if available
                     if st.session_state.agent.memory.completion_checks:
                         latest_check = st.session_state.agent.memory.get_last_completion_check()
                         if latest_check:
                             display_completion_check(step_container, latest_check)
+                
+                # Display failed action if any
+                if failed_action:
+                    display_failed_action(step_container, failed_action)
 
                 # Calculate time since last step and sleep if needed
                 current_time = time.time()
@@ -229,30 +253,9 @@ def main():
             step_container = st.container()
             
             # Display the action information
-            if action_record.type == 'action':
-                step_container.markdown(f"### Step {i}: Action {action_record.action_number}")
-                step_container.markdown(f"**Reasoning:** {action_record.reasoning}")
-            elif action_record.type == 'completion':
-                step_container.markdown(f"### Step {i}: Task Completed")
-                step_container.markdown(f"**Reasoning:** {action_record.reasoning}")
+            step_container.markdown(f"### Step {i}: {action_record.action if hasattr(action_record, 'action') else action_record}")
             
-            # Display VLM information
-            step_container.markdown("**VLM Details:**")
-            if action_record.vlm_prompt:
-                step_container.markdown("**VLM Prompt:**")
-                step_container.code(action_record.vlm_prompt, language=None)
-            if action_record.vlm_response:
-                step_container.markdown("**VLM Response:**")
-                step_container.code(action_record.vlm_response, language=None)
-            
-            # Display completion check if available for this step
-            if st.session_state.agent.memory.completion_checks:
-                for check in st.session_state.agent.memory.completion_checks:
-                    if check.step_number == i:
-                        display_completion_check(step_container, check)
-                        break
-            
-            # Display images for this step
+            # Display images for this step if available
             if i < len(st.session_state.agent.augmented_images):
                 display_step_images(
                     step_container,
@@ -262,10 +265,6 @@ def main():
                 )
             
             step_container.markdown("---")  # Add a separator between steps
-
-    # Example of folding VLM raw output
-    with st.expander("VLM Raw Output"):
-        st.code(st.session_state.vlm_output_str, language=None)
 
 if __name__ == "__main__":
     main() 

@@ -87,6 +87,14 @@ def save_step_data(step_number, view, depth, new_view, vlm_prompt, vlm_output_st
         if action:
             cv2.putText(combined, f"Action: {action}", (10, 70), font, 1, (255, 255, 255), 2)
         
+        # Add progress if available
+        progress = parsed_result.get('progress', None)
+        if progress:
+            # Truncate progress text if too long
+            if len(progress) > 40:
+                progress = progress[:37] + "..."
+            cv2.putText(combined, f"Progress: {progress}", (10, 110), font, 0.8, (255, 255, 255), 2)
+        
         # Save combined image
         cv2.imwrite(os.path.join(step_dir, 'combined.jpg'), combined)
 
@@ -108,6 +116,7 @@ def run_simulation(floor_id, model_id, api_url, target, max_steps, max_distance_
     # Run simulation steps
     step_number = 0
     simulation_completed = False
+    all_landmarks = set()
     
     print(f"Starting simulation with target: {target}")
     
@@ -124,7 +133,7 @@ def run_simulation(floor_id, model_id, api_url, target, max_steps, max_distance_
         print(f"\nExecuting step {step_number + 1}...")
         
         # Execute one step of the navigation and get all results in a dictionary
-        step_result = agent.step(target, task_prompt, max_steps)
+        step_result = agent.step(target, max_steps)
         
         # Extract the relevant data from the result
         augmented_view = step_result["augmented_view"]
@@ -134,12 +143,25 @@ def run_simulation(floor_id, model_id, api_url, target, max_steps, max_distance_
         vlm_output_str = step_result["vlm_output_str"]
         reasoning = step_result["reasoning"]
         action_chosen = step_result["action_chosen"]
+        progress = step_result["progress"]
+        landmarks = step_result["landmarks"]
         completion_prompt = step_result["completion_prompt"]
         completion_output = step_result["completion_output"]
         completion_parsed_result = step_result["completion_parsed_result"]
         
+        # Update landmarks collection
+        if landmarks:
+            # Split landmarks by comma and add to set
+            landmark_items = [item.strip() for item in landmarks.split(',')]
+            all_landmarks.update(landmark_items)
+        
         # Create parsed result for saving
-        parsed_result = {"reasoning": reasoning, "action": action_chosen}
+        parsed_result = {
+            "reasoning": reasoning, 
+            "action": action_chosen,
+            "progress": progress,
+            "landmarks": landmarks
+        }
         
         # Save all data for this step
         save_step_data(
@@ -170,6 +192,9 @@ def run_simulation(floor_id, model_id, api_url, target, max_steps, max_distance_
         # Print step information
         print(f"VLM chose action: {action_chosen}")
         print(f"Reasoning: {reasoning}")
+        print(f"Progress: {progress}")
+        if landmarks:
+            print(f"Landmarks: {landmarks}")
         
         # Print any failed actions if available
         if step_result["failed_action"]:
@@ -191,7 +216,7 @@ def run_simulation(floor_id, model_id, api_url, target, max_steps, max_distance_
     else:
         print(f"Simulation ended after {step_number} steps without completion.")
     
-    return simulation_completed, step_number
+    return simulation_completed, step_number, all_landmarks
 
 def main():
     parser = argparse.ArgumentParser(description="VLM Navigation Simulation")
@@ -213,7 +238,7 @@ def main():
     print(f"Max Distance: {args.max_distance}")
     
     # Run the simulation
-    completed, steps = run_simulation(
+    completed, steps, landmarks = run_simulation(
         floor_id=args.floor_id,
         model_id=args.model_id,
         api_url=args.api_url,
@@ -226,6 +251,7 @@ def main():
     print("\nSimulation Summary:")
     print(f"Completed: {completed}")
     print(f"Total Steps: {steps}")
+    print(f"Landmarks Discovered: {', '.join(landmarks) if landmarks else 'None'}")
     
     # Create report file with summary
     with open(os.path.join('views', 'simulation_report.txt'), 'w') as f:
@@ -236,6 +262,7 @@ def main():
         f.write(f"Target: {args.target}\n")
         f.write(f"Completed: {completed}\n")
         f.write(f"Total Steps: {steps}\n")
+        f.write(f"Landmarks Discovered: {', '.join(landmarks) if landmarks else 'None'}\n")
 
 if __name__ == "__main__":
     main()

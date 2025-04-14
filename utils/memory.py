@@ -6,13 +6,16 @@ from utils.logger import logger
 @dataclass
 class ActionRecord:
     """Record of an action taken by the agent"""
-    type: str  # 'action' or 'completion'
     step_number: int
     action_number: Optional[int] = None
+    movement_info: Dict[str, Any] = field(default_factory=dict)
     reasoning: str = ""
     vlm_prompt: str = ""
     vlm_response: str = ""
     error: Optional[str] = None
+    is_success: bool = False
+    progress: str = ""
+    landmarks: str = ""
 
 @dataclass
 class CompletionCheck:
@@ -75,3 +78,61 @@ class NavigationMemory:
         self.depth_memory.clear()
         self.failed_actions.clear()
         logger.info("Cleared all memory") 
+
+    def get_action_history_as_string(self, last_n_actions: int = 5) -> str:
+        """Get the action memory history as a string"""
+        if not self.action_memory:
+            return "No actions taken yet."
+        
+        # Get the last n actions
+        relevant_actions = self.action_memory[-last_n_actions:] if len(self.action_memory) > last_n_actions else self.action_memory
+        
+        # Format each action into a string
+        action_strings = []
+        for action in relevant_actions:
+            action_string = f"- Step {action.step_number}: "
+            
+            # Add goal information
+            if action.progress:
+                action_string += f"Progress: {action.progress} | "
+            
+            # Add reasoning summary (limited to keep memory concise)
+            if action.reasoning:
+                # Truncate reasoning to keep it concise
+                max_reasoning_len = 100
+                reasoning_summary = action.reasoning[:max_reasoning_len] + "..." if len(action.reasoning) > max_reasoning_len else action.reasoning
+                action_string += f"Reasoning: {reasoning_summary} | "
+            
+            # Add movement information
+            if action.movement_info:
+                action_string += f"Action: {action.movement_info.get('action', 'Unknown')} "
+                if 'degrees' in action.movement_info:
+                    action_string += f"({action.movement_info['degrees']} degrees) "
+                if 'move_distance' in action.movement_info:
+                    action_string += f"({action.movement_info['move_distance']} meters) "
+                action_string += f"| Success: {'Yes' if action.is_success else 'No'} | "
+            
+            # Add landmarks information
+            if action.landmarks:
+                action_string += f"Landmarks: {action.landmarks}"
+            
+            action_strings.append(action_string.rstrip(" | "))  # Remove trailing separator
+        
+        # Add a summary of overall progress
+        all_landmarks = set()
+        
+        for action in self.action_memory:
+            # If landmarks is a string, split by commas and strip whitespace
+            if action.landmarks and isinstance(action.landmarks, str):
+                landmark_items = [item.strip() for item in action.landmarks.split(',')]
+                all_landmarks.update(landmark_items)
+        
+        summary = []
+        if all_landmarks:
+            summary.append(f"LANDMARKS DISCOVERED: {', '.join(all_landmarks)}")
+        
+        # Add the summary at the beginning
+        if summary:
+            action_strings = summary + [""] + action_strings
+        
+        return "\n".join(action_strings)

@@ -19,12 +19,33 @@ from utils.logger import logger
 TASK_PROMPT = """
 You are a robot navigating a house. You see an image with numbered paths representing possible directions.
 Your task is to follow these navigation instructions: '{TARGET}'
-First, briefly describe what you see in the current view (e.g., "I see a kitchen with a counter and cabinets").
-Then analyze the available paths ({ACTIONS}) and choose the best path number to follow the instructions.
-If no path seems helpful, choose '0' to turn around.
-Output your response as a JSON object with two keys: "reasoning" (your description and reasoning) and "action" (the chosen number as a string or '0').
-Example: {{"reasoning": "I see a kitchen with a counter and cabinets. The instructions say to go left and then find the fridge. Path 3 leads to the left, which matches the first part of the instructions.", "action": "3"}}
-Example: {{"reasoning": "I see a dead end with no clear paths forward. I should turn around to explore other directions.", "action": "0"}}
+
+ANALYZE YOUR SURROUNDINGS:
+- Describe what you see in your current view.
+- Note any key landmarks or objects visible to you.
+
+UNDERSTAND YOUR TASK:
+- For simple tasks like "find X": Focus on identifying the target object.
+- For multi-step directions: Break the instruction into logical steps.
+- Track your progress on completed steps.
+
+PLAN YOUR NEXT MOVE:
+- Choose a path from {ACTIONS} that best advances your goal.
+- If you're uncertain or lost, choose '0' to turn around.
+- Avoid previously failed paths or detected loops.
+
+MEMORY OF PREVIOUS STEPS:
+{MEMORY}
+
+Output your response as a JSON object with these keys:
+"reasoning": Your analysis of the current situation and plan
+"action": The chosen path number as a string (e.g., "1", "2", "3") or "0" to turn around
+"progress": Brief description of your task progress (e.g., "Found kitchen, looking for TV")
+"landmarks": Key objects or features you've observed
+
+Example for simple task: {{"reasoning": "I see what appears to be a TV on a stand through path 2. Since my task is to find the TV, I should go that way.", "action": "2", "progress": "TV spotted, moving toward it", "landmarks": "black TV, brown couch, yellow coffee table"}}
+
+Example for complex task: {{"reasoning": "I'm in a hallway and need to go straight until the end, then turn left to find the TV. Path 1 leads straight ahead which matches the first part of my instructions.", "action": "1", "progress": "Following hallway straight as instructed", "landmarks": "Hallway, red picture frames"}}
 """
 
 class VLMNavigationAgent:
@@ -76,6 +97,9 @@ class VLMNavigationAgent:
         """Parse the VLM output to extract reasoning and action."""
         reasoning = "Could not parse VLM output."
         action_chosen = None
+        progress = ""
+        landmarks = ""
+        
         try:
             json_pattern = re.compile(r"```json\s*({.*?})\s*```|({.*?})", re.DOTALL)
             match = json_pattern.search(vlm_output_str)
@@ -85,13 +109,17 @@ class VLMNavigationAgent:
                     vlm_output_json = json_repair.loads(json_str)
                     reasoning = vlm_output_json.get("reasoning", "No reasoning provided in JSON.")
                     action_chosen = vlm_output_json.get("action", None)
+                    progress = vlm_output_json.get("progress", "")
+                    landmarks = vlm_output_json.get("landmarks", "")
             else:
                 vlm_output_json = json_repair.loads(vlm_output_str.strip())
                 reasoning = vlm_output_json.get("reasoning", "No reasoning provided.")
                 action_chosen = vlm_output_json.get("action", None)
+                progress = vlm_output_json.get("progress", "")
+                landmarks = vlm_output_json.get("landmarks", "")
         except json.JSONDecodeError:
             raise Exception("Failed to parse VLM output as JSON.")
-        return reasoning, action_chosen
+        return reasoning, action_chosen, progress, landmarks
 
     def execute_action(self, action_number: int, actions_info: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Execute the chosen action"""
@@ -107,12 +135,26 @@ class VLMNavigationAgent:
         # If action is 0, turn around 180 degrees
         if action_number == 0:
             event = self.env.step("RotateRight", degrees=180)
+
+            # update self.memory with the action
+            self.memory.get_last_action().movement_info = {
+                "action": "TurnAround",
+                "degrees": 180
+            }
             return event
         
         # Otherwise, rotate to the specific degree and move forward
         rotation_action = "RotateLeft" if degree < 0 else "RotateRight"
         event = self.env.step(rotation_action, degrees=abs(degree))
         event = self.env.step("MoveAhead", magnitude=self.max_distance_to_move)
+
+        # update self.memory with the action
+        self.memory.get_last_action().movement_info = {
+            "action": rotation_action,
+            "degrees": abs(degree),
+            "move_distance": self.max_distance_to_move
+        }
+
         return event
 
     def update_memory_with_action(self, action_number, actions_info, reasoning):
@@ -198,7 +240,9 @@ class VLMNavigationAgent:
             "completion_output": "",
             "completion_parsed_result": None,
             "failed_action": None,
-            "completion_reasoning": ""
+            "completion_reasoning": "",
+            "progress": "",
+            "landmarks": ""
         }
         
         if self.completed or self.step_number >= max_steps:
@@ -219,25 +263,29 @@ class VLMNavigationAgent:
             
             # Format actions for prompt
             actions_str = ", ".join([f"{a['action_number']}" for a in actions_info])
-            formatted_prompt = TASK_PROMPT.format(TARGET=target, ACTIONS=actions_str)
+            memory_str = self.memory.get_action_history_as_string(self.last_n_for_action_choice)
+            formatted_prompt = TASK_PROMPT.format(TARGET=target, ACTIONS=actions_str, MEMORY=memory_str)
             result["vlm_prompt"] = formatted_prompt
             
             # Get VLM response
             self.vlm_output_str = self.model.get_response(augmented_view, formatted_prompt)
             result["vlm_output_str"] = self.vlm_output_str
             
-            reasoning, action_chosen = self.parse_vlm_output(self.vlm_output_str)
+            reasoning, action_chosen, progress, landmarks = self.parse_vlm_output(self.vlm_output_str)
             result["reasoning"] = reasoning
             result["action_chosen"] = action_chosen
+            result["progress"] = progress
+            result["landmarks"] = landmarks
             
             # Record action
             action_record = ActionRecord(
-                type="action",
                 step_number=self.step_number,
                 action_number=int(action_chosen) if action_chosen and action_chosen != "done" else None,
                 reasoning=reasoning,
                 vlm_prompt=formatted_prompt,
-                vlm_response=self.vlm_output_str
+                vlm_response=self.vlm_output_str,
+                progress=progress,
+                landmarks=landmarks,
             )
             self.memory.add_action(action_record)
             
@@ -257,6 +305,7 @@ class VLMNavigationAgent:
                     event = self.execute_action(int(action_chosen), actions_info)
                     new_view = event.frame
                     result["new_view"] = new_view
+                    self.memory.get_last_action().is_success = True
                 except Exception as e:
                     logger.error(f"Failed to execute action: {str(e)}")
                     failed_action = {
@@ -280,12 +329,6 @@ class VLMNavigationAgent:
             
             if completed:
                 self.completed = True
-                completion_record = ActionRecord(
-                    type="completion",
-                    step_number=self.step_number,
-                    reasoning=completion_reasoning
-                )
-                self.memory.add_action(completion_record)
             
             self.step_number += 1
             return result
