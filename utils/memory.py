@@ -24,6 +24,7 @@ class ActionRecord:
     is_success: bool = False # this only indicates the success of the MoveAhead action, other actions are always successful
     progress: str = ""
     landmarks: str = ""
+    completed: bool = False
 
 @dataclass
 class CompletionCheck:

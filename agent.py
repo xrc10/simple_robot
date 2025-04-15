@@ -45,26 +45,41 @@ PLAN YOUR NEXT MOVE:
 MEMORY OF PREVIOUS STEPS:
 {MEMORY}
 
-Example for simple task: {{"reasoning": "The instruction is "find the TV". I see what appears to be a TV on a stand through path 2. Since my task is to find the TV, I should go that way.", "action": "2", "progress": "TV spotted, moving toward it", "landmarks": "black TV, brown couch, yellow coffee table"}}
+DETERMINE TASK COMPLETION:
+- After each action execution, determine if you've completed the task.
+- For "find X" tasks, you've completed the task when X is clearly visible in your current view.
+- For multi-step directions, you've completed the task when all steps are done.
+- Consider task complete only when you're confident you've met all requirements.
 
-Example for complex task: {{"reasoning": "The instruction is "go straight in the hallway until the end, then turn left, then find the TV". Given previous steps, I am still in the hallway. I should go straight until the end. Path 1 leads straight ahead which matches the first part of my instructions.", "action": "1", "progress": "Follwoing first part of the instruction to go straight in the hallway", "landmarks": "Hallway, red picture frames"}}
+Example for simple task: {{"reasoning": "The instruction is "find the TV". I see what appears to be a TV on a stand through path 2. Since my task is to find the TV, I should go that way.", "action": "2", "progress": "TV spotted, moving toward it", "landmarks": "black TV, brown couch, yellow coffee table", "completed": false}}
 
-Example for complex task: {{"reasoning": "The instruction is "go straight in the hallway until the end, then turn left, then find the TV". Given previous steps, I am at the end of the hallway. I should turn left. Path 2 leads left which matches the next part of my instructions.", "action": "2", "progress": "Reach the end of the hallway, now turn left", "landmarks": "Hallway, red picture frames"}}
+Example for complex task: {{"reasoning": "The instruction is "go straight in the hallway until the end, then turn left, then find the TV". Given previous steps, I am still in the hallway. I should go straight until the end. Path 1 leads straight ahead which matches the first part of my instructions.", "action": "1", "progress": "Follwoing first part of the instruction to go straight in the hallway", "landmarks": "Hallway, red picture frames", "completed": false}}
+
+Example for completed task: {{"reasoning": "The instruction is "find the TV". I can now clearly see a TV directly in front of me. The task was to find the TV and I have successfully found it.", "action": "done", "progress": "Found the TV", "landmarks": "Black flat-screen TV, wooden TV stand, potted plant", "completed": true}}
 
 Output your response as a JSON object with these keys:
 "reasoning": Your analysis of the current situation and plan
-"action": The chosen path number as a string (e.g., "1", "2", "3") or "0" to turn around
+"action": The chosen path number as a string (e.g., "1", "2", "3"), "0" to turn around, or "done" if task is complete
 "progress": Brief description of your task progress (e.g., "Found kitchen, looking for TV")
 "landmarks": ONLY key objects or features that are clearly visible in your current view. Do not include uncertain or partially visible objects.
-
+"completed": Boolean (true/false) indicating whether the task has been completed
 """
 
 class VLMNavigationAgent:
     """Agent for VLM-based navigation"""
     def __init__(self, env: ThorEnvDogView, action_model_id: str, completion_model_id: str, api_url: str, max_distance_to_move: float = 1.0):
+        """Initialize the VLMNavigationAgent
+        
+        Args:
+            env: The Thor environment
+            action_model_id: ID of the VLM model to use for action selection
+            completion_model_id: ID of the model for completion checks (kept for backward compatibility, not used anymore)
+            api_url: URL of the API for action proposals
+            max_distance_to_move: Maximum distance to move in meters
+        """
         self.env = env
         self.action_model = VLM('llm.yaml', action_model_id)
-        self.completion_model = VLM('llm.yaml', completion_model_id)
+        # We no longer need a separate completion model as completion is determined by the action model
         self.api_url = api_url
         self.max_distance_to_move = max_distance_to_move
         self.memory = NavigationMemory()
@@ -123,6 +138,7 @@ class VLMNavigationAgent:
         action_chosen = None
         progress = ""
         landmarks = ""
+        completed = False
         
         try:
             json_pattern = re.compile(r"```json\s*({.*?})\s*```|({.*?})", re.DOTALL)
@@ -135,15 +151,17 @@ class VLMNavigationAgent:
                     action_chosen = vlm_output_json.get("action", None)
                     progress = vlm_output_json.get("progress", "")
                     landmarks = vlm_output_json.get("landmarks", "")
+                    completed = vlm_output_json.get("completed", False)
             else:
                 vlm_output_json = json_repair.loads(vlm_output_str.strip())
                 reasoning = vlm_output_json.get("reasoning", "No reasoning provided.")
                 action_chosen = vlm_output_json.get("action", None)
                 progress = vlm_output_json.get("progress", "")
                 landmarks = vlm_output_json.get("landmarks", "")
+                completed = vlm_output_json.get("completed", False)
         except json.JSONDecodeError:
             raise Exception("Failed to parse VLM output as JSON.")
-        return reasoning, action_chosen, progress, landmarks
+        return reasoning, action_chosen, progress, landmarks, completed
 
     def execute_action(self, action_number: int, actions_info: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Execute the chosen action"""
@@ -197,38 +215,6 @@ class VLMNavigationAgent:
 
         return event
     
-    def check_task_completion(self, target: str, current_view: np.ndarray) -> Tuple[bool, str]:
-        """Check if the navigation task is complete"""
-        completion_prompt = f"""You are a robot navigating a house. Your task is: {target}
-        Look at the current view and determine if you have completed the task.
-        Output your response as a JSON object with two keys:
-        - "completed" (boolean): true if the task is complete, false otherwise
-        - "reasoning" (string): explain why you think the task is complete or not
-        """
-        
-        completion_check = self.completion_model.get_response(current_view, completion_prompt)
-        try:
-            # use json_repair to parse the completion check
-            completion_data = json_repair.loads(completion_check)
-            completed = completion_data.get("completed", False)
-            reasoning = completion_data.get("reasoning", "No reasoning provided")
-            
-            # Record completion check
-            check = CompletionCheck(
-                step_number=self.step_number,
-                completed=completed,
-                reasoning=reasoning,
-                images=[current_view],
-                prompt=completion_prompt,
-                response=completion_check
-            )
-            self.memory.add_completion_check(check)
-            
-            return completed, reasoning, completion_prompt, completion_check, completion_data
-        except json.JSONDecodeError:
-            logger.error("Failed to parse completion check response")
-            return False, "Failed to parse completion check response"
-
     def step(self, target: str, max_steps: int) -> Dict[str, Any]:
         """Execute one step of navigation"""
         result = {
@@ -242,11 +228,11 @@ class VLMNavigationAgent:
             "completed": False,
             "vlm_prompt": "",
             "vlm_output_str": "",
-            "completion_prompt": "",
-            "completion_output": "",
-            "completion_parsed_result": None,
-            "failed_action": None,
             "completion_reasoning": "",
+            "completion_prompt": "",  # For backward compatibility
+            "completion_output": "",  # For backward compatibility
+            "completion_parsed_result": None,  # For backward compatibility
+            "failed_action": None,
             "progress": "",
             "landmarks": ""
         }
@@ -278,11 +264,13 @@ class VLMNavigationAgent:
             self.vlm_output_str = self.action_model.get_response(augmented_view, formatted_prompt)
             result["vlm_output_str"] = self.vlm_output_str
             
-            reasoning, action_chosen, progress, landmarks = self.parse_vlm_output(self.vlm_output_str)
+            reasoning, action_chosen, progress, landmarks, completed = self.parse_vlm_output(self.vlm_output_str)
             result["reasoning"] = reasoning
             result["action_chosen"] = action_chosen
             result["progress"] = progress
             result["landmarks"] = landmarks
+            result["completed"] = completed
+            result["completion_reasoning"] = reasoning  # Use the same reasoning for completion
             
             # Handle consecutive turn around constraint
             if action_chosen and action_chosen != "done":
@@ -318,6 +306,7 @@ class VLMNavigationAgent:
                 vlm_response=self.vlm_output_str,
                 progress=progress,
                 landmarks=landmarks,
+                completed=completed
             )
             self.memory.add_action(action_record)
             
@@ -362,17 +351,28 @@ class VLMNavigationAgent:
                     self.memory.add_failed_action(failed_action)
                     result["failed_action"] = failed_action
             
-            # Check task completion
-            current_view = self.env.get_observation() # update current view
-            completed, completion_reasoning, completion_prompt, completion_check, completion_data = self.check_task_completion(target, current_view)
-            result["completed"] = completed
-            result["completion_reasoning"] = completion_reasoning
-            result["completion_prompt"] = completion_prompt
-            result["completion_output"] = completion_check
-            result["completion_parsed_result"] = completion_data
+            # Set backward compatibility fields for completion check
+            result["completion_prompt"] = formatted_prompt
+            result["completion_output"] = self.vlm_output_str
+            result["completion_parsed_result"] = {
+                "completed": completed,
+                "reasoning": reasoning
+            }
             
+            # Set task completion based on VLM's determination
             if completed:
                 self.completed = True
+                
+                # Create a completion check record for compatibility with existing code
+                check = CompletionCheck(
+                    step_number=self.step_number,
+                    completed=completed,
+                    reasoning=reasoning,
+                    images=[current_view],
+                    prompt=formatted_prompt,
+                    response=self.vlm_output_str
+                )
+                self.memory.add_completion_check(check)
                 
                 # Generate final occupancy map
                 occupancy_map_path = os.path.join('views', 'occupancy_maps', 'final_occupancy_map.png')
