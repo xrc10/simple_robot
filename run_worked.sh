@@ -1,0 +1,1 @@
+xvfb-run  python main.py --floor_id FloorPlan_Train1_5 --action_model_id Pro/Qwen/Qwen2.5-VL-7B-Instruct --completion_model_id Pro/Qwen/Qwen2.5-VL-7B-Instruct --target "find the TV" --max_steps 50 --max_distance 1.0

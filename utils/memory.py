@@ -40,26 +40,26 @@ class NavigationMemory:
     def add_action(self, action_record: ActionRecord):
         """Add an action to memory"""
         self.action_memory.append(action_record)
-        logger.info(f"Added action record: {action_record}")
+        # logger.info(f"Added action record: {action_record}")
     
     def add_completion_check(self, check: CompletionCheck):
         """Add a completion check to memory"""
         self.completion_checks.append(check)
         check_without_images = check.__dict__
         check_without_images.pop('images')
-        logger.info(f"Added completion check: {check_without_images}")
+        # logger.info(f"Added completion check: {check_without_images}")
     
     def add_images(self, augmented: np.ndarray, complete: np.ndarray, depth: np.ndarray):
         """Add images to memory"""
         self.augmented_images.append(augmented)
         self.complete_images.append(complete)
         self.depth_memory.append(depth)
-        logger.debug(f"Added images to memory - shapes: augmented={augmented.shape}, complete={complete.shape}, depth={depth.shape}")
+        # logger.debug(f"Added images to memory - shapes: augmented={augmented.shape}, complete={complete.shape}, depth={depth.shape}")
     
     def add_failed_action(self, failed_action: Dict[str, Any]):
         """Add a failed action to memory"""
         self.failed_actions.append(failed_action)
-        logger.warning(f"Added failed action: {failed_action}")
+        # logger.warning(f"Added failed action: {failed_action}")
     
     def get_last_action(self) -> Optional[ActionRecord]:
         """Get the last action taken"""

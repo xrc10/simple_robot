@@ -9,8 +9,12 @@ import shutil
 
 class ThorEnv(object):
     def __init__(self, floor_id) -> None:
+       if floor_id.startswith("FloorPlan_"):
+           self.agentMode = "locobot"
+       else:
+           self.agentMode = "default"
        self.controller = Controller(
-            agentMode="default",
+            agentMode=self.agentMode,
             visibilityDistance=1.5,
             scene=floor_id,
 
@@ -44,8 +48,12 @@ class ThorEnv(object):
 
 class ThorEnvDogView(object):
     def __init__(self, floor_id) -> None:
+        if floor_id.startswith("FloorPlan_"):
+           self.agentMode = "locobot"
+        else:
+           self.agentMode = "default"
         self.controller = Controller(
-            agentMode="default",
+            agentMode=self.agentMode,
             scene=floor_id,
             width=720,
             height=480,
@@ -60,12 +68,14 @@ class ThorEnvDogView(object):
             renderDepthImage=True,
             renderInstanceSegmentation=False,
         )
-        self.controller.step("Crouch")
+        if self.agentMode == "default": # only default can crouch
+            self.controller.step("Crouch")
         self.controller.step("LookDown")
     
     def reset(self, floor_id):
         self.controller.reset(scene=floor_id)
-        self.controller.step("Crouch")
+        if self.agentMode == "default": # only default can crouch
+            self.controller.step("Crouch")
         self.controller.step("LookDown")
 
     def get_last_event(self):

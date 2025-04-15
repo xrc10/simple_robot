@@ -98,7 +98,7 @@ def save_step_data(step_number, view, depth, new_view, vlm_prompt, vlm_output_st
         # Save combined image
         cv2.imwrite(os.path.join(step_dir, 'combined.jpg'), combined)
 
-def run_simulation(floor_id, model_id, api_url, target, max_steps, max_distance_to_move):
+def run_simulation(floor_id, action_model_id, completion_model_id, api_url, target, max_steps, max_distance_to_move):
     """Run the navigation simulation and save results."""
     # Setup the views directory
     setup_views_directory()
@@ -108,7 +108,8 @@ def run_simulation(floor_id, model_id, api_url, target, max_steps, max_distance_
     env = ThorEnvDogView(floor_id)
     agent = VLMNavigationAgent(
         env=env,
-        model_id=model_id,
+        action_model_id=action_model_id,
+        completion_model_id=completion_model_id,
         api_url=api_url,
         max_distance_to_move=max_distance_to_move
     )
@@ -130,7 +131,7 @@ def run_simulation(floor_id, model_id, api_url, target, max_steps, max_distance_
             cv2.imwrite(os.path.join(initial_dir, 'initial_depth.jpg'), depth_heatmap)
     
     while step_number < max_steps and not simulation_completed:
-        print(f"\nExecuting step {step_number + 1}...")
+        print(f"\nExecuting step {step_number}...")
         
         # Execute one step of the navigation and get all results in a dictionary
         step_result = agent.step(target, max_steps)
@@ -151,8 +152,11 @@ def run_simulation(floor_id, model_id, api_url, target, max_steps, max_distance_
         
         # Update landmarks collection
         if landmarks:
-            # Split landmarks by comma and add to set
-            landmark_items = [item.strip() for item in landmarks.split(',')]
+            # Handle both list and string inputs for landmarks
+            if isinstance(landmarks, str):
+                landmark_items = [item.strip() for item in landmarks.split(',')]
+            else:
+                landmark_items = [str(item).strip() for item in landmarks]
             all_landmarks.update(landmark_items)
         
         # Create parsed result for saving
@@ -221,7 +225,8 @@ def run_simulation(floor_id, model_id, api_url, target, max_steps, max_distance_
 def main():
     parser = argparse.ArgumentParser(description="VLM Navigation Simulation")
     parser.add_argument("--floor_id", type=str, default="FloorPlan10", help="Floor ID for simulation")
-    parser.add_argument("--model_id", type=str, default="Pro/Qwen/Qwen2.5-VL-7B-Instruct", help="Model ID for VLM")
+    parser.add_argument("--action_model_id", type=str, default="Pro/Qwen/Qwen2.5-VL-7B-Instruct", help="Model ID for VLM")
+    parser.add_argument("--completion_model_id", type=str, default="Qwen/Qwen2.5-VL-32B-Instruct", help="Model ID for VLM")
     parser.add_argument("--api_url", type=str, default="http://10.8.25.28:8075/generate_action_proposals", help="API URL for VLM")
     parser.add_argument("--target", type=str, default="find a shelf with glass bottle on it", help="Target location")
     parser.add_argument("--max_steps", type=int, default=50, help="Maximum simulation steps")
@@ -232,7 +237,8 @@ def main():
     # Print simulation parameters
     print("Starting simulation with the following parameters:")
     print(f"Floor ID: {args.floor_id}")
-    print(f"Model ID: {args.model_id}")
+    print(f"Action Model ID: {args.action_model_id}")
+    print(f"Completion Model ID: {args.completion_model_id}")
     print(f"Target: {args.target}")
     print(f"Max Steps: {args.max_steps}")
     print(f"Max Distance: {args.max_distance}")
@@ -240,7 +246,8 @@ def main():
     # Run the simulation
     completed, steps, landmarks = run_simulation(
         floor_id=args.floor_id,
-        model_id=args.model_id,
+        action_model_id=args.action_model_id,
+        completion_model_id=args.completion_model_id,
         api_url=args.api_url,
         target=args.target,
         max_steps=args.max_steps,
@@ -258,7 +265,8 @@ def main():
         f.write(f"Simulation Report\n")
         f.write(f"=================\n\n")
         f.write(f"Floor ID: {args.floor_id}\n")
-        f.write(f"Model ID: {args.model_id}\n")
+        f.write(f"Action Model ID: {args.action_model_id}\n")
+        f.write(f"Completion Model ID: {args.completion_model_id}\n")
         f.write(f"Target: {args.target}\n")
         f.write(f"Completed: {completed}\n")
         f.write(f"Total Steps: {steps}\n")

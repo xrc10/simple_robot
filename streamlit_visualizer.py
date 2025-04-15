@@ -6,6 +6,7 @@ import re
 import pandas as pd
 import numpy as np
 from PIL import Image
+import base64
 
 st.set_page_config(layout="wide", page_title="Robot Navigation Visualizer")
 
@@ -57,11 +58,39 @@ def main():
         with st.expander("Simulation Report", expanded=True):
             st.text(report)
     
-    # Display simulation video if available
-    video_path = "views/simulation_video.mp4"
-    if os.path.exists(video_path):
-        with st.expander("Simulation Video", expanded=True):
-            st.video(video_path)
+    # # Display simulation video if available
+    # video_path = "views/simulation_video.mp4"
+    # if os.path.exists(video_path):
+    #     with st.expander("Simulation Video", expanded=True):
+    #         try:
+    #             # Get absolute path and verify file
+    #             abs_path = os.path.abspath(video_path)
+    #             if not os.path.isfile(abs_path):
+    #                 st.error(f"Video file is not a regular file: {abs_path}")
+    #             else:
+    #                 # Try to open the file to check if it's readable
+    #                 with open(abs_path, 'rb') as f:
+    #                     f.read(1)  # Just check if we can read the file
+                    
+    #                 # Use experimental video component
+    #                 video_file = open(abs_path, 'rb')
+    #                 video_bytes = video_file.read()
+                    
+    #                 # Add HTML5 video tag with controls
+    #                 st.markdown(f"""
+    #                 <video width="100%" controls>
+    #                     <source src="data:video/mp4;base64,{base64.b64encode(video_bytes).decode()}" type="video/mp4">
+    #                     Your browser does not support the video tag.
+    #                 </video>
+    #                 """, unsafe_allow_html=True)
+    #         except Exception as e:
+    #             st.error(f"Error playing video: {str(e)}")
+    #             st.info("Supported video formats: MP4, WebM, Ogg")
+    #             st.info(f"Video path: {abs_path}")
+    #             st.info("If the video is large, try reducing its size or converting to a different format.")
+    #             st.info("Current video size: " + str(os.path.getsize(abs_path) / (1024 * 1024)) + " MB")
+    # else:
+    #     st.warning(f"Simulation video not found. Expected path: {os.path.abspath(video_path)}")
     
     # Get step folders
     step_folders = get_step_folders()

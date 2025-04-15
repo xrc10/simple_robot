@@ -22,7 +22,14 @@ Your task is to follow these navigation instructions: '{TARGET}'
 
 ANALYZE YOUR SURROUNDINGS:
 - Describe what you see in your current view.
-- Note any key landmarks or objects visible to you.
+- Note any key landmarks or objects that are clearly visible to you in your current view.
+- IMPORTANT: Only report landmarks that you can clearly see and identify in your current view.
+- DO NOT report landmarks that are:
+  * Partially visible
+  * Uncertain
+  * Seen through a path/doorway
+  * Previously seen but not in current view
+  * Hallucinated or assumed
 
 UNDERSTAND YOUR TASK:
 - For simple tasks like "find X": Focus on identifying the target object.
@@ -47,15 +54,16 @@ Output your response as a JSON object with these keys:
 "reasoning": Your analysis of the current situation and plan
 "action": The chosen path number as a string (e.g., "1", "2", "3") or "0" to turn around
 "progress": Brief description of your task progress (e.g., "Found kitchen, looking for TV")
-"landmarks": Key objects or features you've observed
+"landmarks": ONLY key objects or features that are clearly visible in your current view. Do not include uncertain or partially visible objects.
 
 """
 
 class VLMNavigationAgent:
     """Agent for VLM-based navigation"""
-    def __init__(self, env: ThorEnvDogView, model_id: str, api_url: str, max_distance_to_move: float = 1.0):
+    def __init__(self, env: ThorEnvDogView, action_model_id: str, completion_model_id: str, api_url: str, max_distance_to_move: float = 1.0):
         self.env = env
-        self.model = VLM('llm.yaml', model_id)
+        self.action_model = VLM('llm.yaml', action_model_id)
+        self.completion_model = VLM('llm.yaml', completion_model_id)
         self.api_url = api_url
         self.max_distance_to_move = max_distance_to_move
         self.memory = NavigationMemory()
@@ -149,15 +157,24 @@ class VLMNavigationAgent:
         
         # Calculate move distance based on depth and boundary point
         move_distance = self.max_distance_to_move
-        if action_info["boundary_point"] is not None and self.depth is not None:
+        depth = self.env.get_depth()
+        if action_info["boundary_point"] is not None and depth is not None:
             boundary_x, boundary_y = action_info["boundary_point"]
-            boundary_distance = self.depth[boundary_y, boundary_x]  # Get depth in meters
-            move_distance = min(2/3 * boundary_distance, self.max_distance_to_move)
+            boundary_distance = depth[boundary_y, boundary_x]  # Get depth in meters
+            move_distance = min(1/2 * boundary_distance, self.max_distance_to_move)
         
         # Otherwise, rotate to the specific degree and move forward
         rotation_action = "RotateLeft" if degree < 0 else "RotateRight"
         event = self.env.step(rotation_action, degrees=abs(degree))
         event = self.env.step("MoveAhead", magnitude=move_distance)
+
+        if event.metadata["lastActionSuccess"]:
+            logger.info(f"Action {rotation_action} with degree {abs(degree)} and move distance {move_distance} succeeded")
+        else:
+            failed_reason = event.metadata['errorMessage']
+            logger.info(f"Action {rotation_action} with degree {abs(degree)} and move distance {move_distance} failed")
+            logger.info(f"Failed reason: {failed_reason}")
+            raise Exception(f"Action {rotation_action} with degree {abs(degree)} and move distance {move_distance} failed")
 
         # update self.memory with the action
         self.memory.get_last_action().movement_info = {
@@ -177,7 +194,7 @@ class VLMNavigationAgent:
         - "reasoning" (string): explain why you think the task is complete or not
         """
         
-        completion_check = self.model.get_response(current_view, completion_prompt)
+        completion_check = self.completion_model.get_response(current_view, completion_prompt)
         try:
             # use json_repair to parse the completion check
             completion_data = json_repair.loads(completion_check)
@@ -245,7 +262,7 @@ class VLMNavigationAgent:
             result["vlm_prompt"] = formatted_prompt
             
             # Get VLM response
-            self.vlm_output_str = self.model.get_response(augmented_view, formatted_prompt)
+            self.vlm_output_str = self.action_model.get_response(augmented_view, formatted_prompt)
             result["vlm_output_str"] = self.vlm_output_str
             
             reasoning, action_chosen, progress, landmarks = self.parse_vlm_output(self.vlm_output_str)
