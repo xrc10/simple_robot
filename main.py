@@ -235,7 +235,7 @@ def run_simulation(floor_id, action_model_id, completion_model_id, api_url, targ
 def main():
     parser = argparse.ArgumentParser(description="VLM Navigation Simulation")
     parser.add_argument("--floor_id", type=str, default="FloorPlan10", help="Floor ID for simulation (for thor env)")
-    parser.add_argument("--action_model_id", type=str, default="Pro/Qwen/Qwen2.5-VL-7B-Instruct", help="Model ID for VLM")
+    parser.add_argument("--action_model_id", type=str, default="Qwen/Qwen2.5-VL-32B-Instruct", help="Model ID for VLM")
     parser.add_argument("--completion_model_id", type=str, default="Qwen/Qwen2.5-VL-32B-Instruct", help="Model ID for VLM")
     parser.add_argument("--api_url", type=str, default="http://10.8.25.28:8075/generate_action_proposals", help="API URL for VLM")
     parser.add_argument("--target", type=str, default="find a shelf with glass bottle on it", help="Target location")
