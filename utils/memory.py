@@ -8,12 +8,20 @@ class ActionRecord:
     """Record of an action taken by the agent"""
     step_number: int
     action_number: Optional[int] = None
+
+    # movement_info is a dictionary that contains the movement information for the action
+    # {
+    #     "action": a string from ["RotateLeft", "RotateRight", "TurnAround"],
+    #     "degrees": 180 for TurnAround, a number between 0 and 90 for RotateLeft and RotateRight
+    #     "move_distance": a number in meters for distance move ahead after rotation, this key does not exist for TurnAround
+    # }
     movement_info: Dict[str, Any] = field(default_factory=dict)
+
     reasoning: str = ""
     vlm_prompt: str = ""
     vlm_response: str = ""
     error: Optional[str] = None
-    is_success: bool = False
+    is_success: bool = False # this only indicates the success of the MoveAhead action, other actions are always successful
     progress: str = ""
     landmarks: str = ""
 
@@ -36,7 +44,7 @@ class NavigationMemory:
     complete_images: List[np.ndarray] = field(default_factory=list)
     depth_memory: List[np.ndarray] = field(default_factory=list)
     failed_actions: List[Dict[str, Any]] = field(default_factory=list)
-    
+    navigability_masks: List[np.ndarray] = field(default_factory=list) # of shape (H, W), true for navigable cells (ground), false for obstacles
     def add_action(self, action_record: ActionRecord):
         """Add an action to memory"""
         self.action_memory.append(action_record)
@@ -49,11 +57,12 @@ class NavigationMemory:
         check_without_images.pop('images')
         # logger.info(f"Added completion check: {check_without_images}")
     
-    def add_images(self, augmented: np.ndarray, complete: np.ndarray, depth: np.ndarray):
+    def add_images(self, augmented: np.ndarray, complete: np.ndarray, depth: np.ndarray, navigability_mask: np.ndarray):
         """Add images to memory"""
         self.augmented_images.append(augmented)
         self.complete_images.append(complete)
         self.depth_memory.append(depth)
+        self.navigability_masks.append(navigability_mask)
         # logger.debug(f"Added images to memory - shapes: augmented={augmented.shape}, complete={complete.shape}, depth={depth.shape}")
     
     def add_failed_action(self, failed_action: Dict[str, Any]):

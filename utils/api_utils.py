@@ -38,7 +38,12 @@ def handle_api_response(response):
                 raise Exception("API response missing actions data")
                 
             actions = data["actions"]
-            return augmented_image_np, actions
+
+            # process navigability map
+            navigability_mask = data['navigability_mask']
+            navigability_mask_np = np.array(navigability_mask)
+
+            return augmented_image_np, actions, navigability_mask_np
         except Exception as e:
             raise Exception(f"Error processing API response: {str(e)}")
     else:

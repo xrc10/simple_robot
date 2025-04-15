@@ -15,6 +15,7 @@ from utils.api_utils import send_api_request, handle_api_response
 from utils.image_utils import convert_image_to_base64
 from utils.visualization import draw_action_overlay
 from utils.logger import logger
+from utils.occupancy_map import generate_occupancy_map
 
 TASK_PROMPT = """
 You are a robot navigating a house. You see an image with numbered paths representing possible directions.
@@ -89,6 +90,12 @@ class VLMNavigationAgent:
         self.last_actions_info = None
         self.last_n_for_action_choice = 5
         self.last_n_for_completion_check = 3  # Number of recent actions/images to consider for task completion check
+        
+        # Occupancy map parameters
+        self.camera_height = 1.5  # meters
+        self.camera_fov = self.env.controller.initialization_parameters['fieldOfView']    # FOV degrees
+        self.camera_pitch = 30  # degrees down from horizontal
+        
         self.setup_views_directory()
 
     def setup_views_directory(self):
@@ -98,6 +105,11 @@ class VLMNavigationAgent:
         else:
             shutil.rmtree('views')
             os.makedirs('views')
+        
+        # Create directory for occupancy maps
+        occupancy_dir = os.path.join('views', 'occupancy_maps')
+        if not os.path.exists(occupancy_dir):
+            os.makedirs(occupancy_dir)
 
     def get_action_proposals(self, image: np.ndarray) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
         """Get action proposals from the API"""
@@ -251,9 +263,10 @@ class VLMNavigationAgent:
             result["depth"] = depth
             
             # Get action proposals
-            augmented_view, actions_info = self.get_action_proposals(current_view)
+            augmented_view, actions_info, navigability_mask = self.get_action_proposals(current_view)
             result["augmented_view"] = augmented_view
             result["actions_info"] = actions_info
+            result["navigability_mask"] = navigability_mask
             
             # Format actions for prompt
             actions_str = ", ".join([f"{a['action_number']}" for a in actions_info])
@@ -315,8 +328,19 @@ class VLMNavigationAgent:
                 augmented_view = draw_action_overlay(augmented_view, action_info)
                 result["augmented_view"] = augmented_view
 
-            # Store images, now the agumented_view has draw action overlay (if action is chosen)
-            self.memory.add_images(augmented_view, current_view, depth)
+            # Store images, now the augmented_view has draw action overlay (if action is chosen)
+            self.memory.add_images(augmented_view, current_view, depth, navigability_mask)
+            
+            # Generate occupancy map
+            occupancy_map_path = os.path.join('views', 'occupancy_maps', f'occupancy_map_step_{self.step_number}.png')
+            generate_occupancy_map(
+                memory=self.memory,
+                camera_height=self.camera_height,
+                camera_fov=self.camera_fov,
+                camera_pitch=self.camera_pitch,
+                display=False,
+                save_path=occupancy_map_path
+            )
             
             # Execute action and get new view
             if action_chosen and action_chosen != "done":
@@ -339,6 +363,7 @@ class VLMNavigationAgent:
                     result["failed_action"] = failed_action
             
             # Check task completion
+            current_view = self.env.get_observation() # update current view
             completed, completion_reasoning, completion_prompt, completion_check, completion_data = self.check_task_completion(target, current_view)
             result["completed"] = completed
             result["completion_reasoning"] = completion_reasoning
@@ -348,6 +373,17 @@ class VLMNavigationAgent:
             
             if completed:
                 self.completed = True
+                
+                # Generate final occupancy map
+                occupancy_map_path = os.path.join('views', 'occupancy_maps', 'final_occupancy_map.png')
+                generate_occupancy_map(
+                    memory=self.memory,
+                    camera_height=self.camera_height,
+                    camera_fov=self.camera_fov,
+                    camera_pitch=self.camera_pitch,
+                    display=False,
+                    save_path=occupancy_map_path
+                )
             
             self.step_number += 1
             return result
