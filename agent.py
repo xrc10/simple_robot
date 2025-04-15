@@ -108,7 +108,7 @@ class VLMNavigationAgent:
         
         # Occupancy map parameters
         self.camera_height = 1.5  # meters
-        self.camera_fov = self.env.controller.initialization_parameters['fieldOfView']    # FOV degrees
+        self.camera_fov = self.env.camera_fov    # FOV degrees
         self.camera_pitch = 30  # degrees down from horizontal
         
         self.setup_views_directory()

@@ -71,6 +71,7 @@ class ThorEnvDogView(object):
         if self.agentMode == "default": # only default can crouch
             self.controller.step("Crouch")
         self.controller.step("LookDown")
+        self.camera_fov = self.controller.initialization_parameters['fieldOfView']
     
     def reset(self, floor_id):
         self.controller.reset(scene=floor_id)
