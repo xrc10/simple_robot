@@ -49,6 +49,14 @@ def create_simulation_video(agent, output_path='simulation_video.mp4'):
                 action_text = f"Action: {action.action_number if action.action_number is not None else 'None'}"
                 draw.text((10, 10), step_text, (255, 255, 255), font=font)
                 draw.text((10, 50), action_text, (255, 255, 255), font=font)
+                
+                # Add reasoning if available
+                if hasattr(action, 'reasoning') and action.reasoning:
+                    # Split reasoning into multiple lines if too long
+                    max_chars_per_line = 60
+                    reasoning_lines = [action.reasoning[i:i+max_chars_per_line] for i in range(0, len(action.reasoning), max_chars_per_line)]
+                    for j, line in enumerate(reasoning_lines):
+                        draw.text((10, 90 + j*40), f"Reasoning: {line}", (255, 255, 255), font=font)
             
             # Convert back to OpenCV format
             combined_cv = cv2.cvtColor(np.array(combined), cv2.COLOR_RGB2BGR)

@@ -37,11 +37,11 @@ PLAN YOUR NEXT MOVE:
 MEMORY OF PREVIOUS STEPS:
 {MEMORY}
 
-Example for simple task: {{"reasoning": "The instruction is to find the TV. I see what appears to be a TV on a stand through path 2. Since my task is to find the TV, I should go that way.", "action": "2", "progress": "TV spotted, moving toward it", "landmarks": "black TV, brown couch, yellow coffee table"}}
+Example for simple task: {{"reasoning": "The instruction is "find the TV". I see what appears to be a TV on a stand through path 2. Since my task is to find the TV, I should go that way.", "action": "2", "progress": "TV spotted, moving toward it", "landmarks": "black TV, brown couch, yellow coffee table"}}
 
-Example for complex task: {{"reasoning": "The instruction is to go straight in the hallway until the end, then turn left to find the TV. Given previous steps, I am still in the hallway. I should go straight until the end. Path 1 leads straight ahead which matches the first part of my instructions.", "action": "1", "progress": "Follwoing first part of the instruction to go straight in the hallway", "landmarks": "Hallway, red picture frames"}}
+Example for complex task: {{"reasoning": "The instruction is "go straight in the hallway until the end, then turn left, then find the TV". Given previous steps, I am still in the hallway. I should go straight until the end. Path 1 leads straight ahead which matches the first part of my instructions.", "action": "1", "progress": "Follwoing first part of the instruction to go straight in the hallway", "landmarks": "Hallway, red picture frames"}}
 
-Example for complex task: {{"reasoning": "The instruction is to go straight in the hallway until the end, then turn left to find the TV. Given previous steps, I am at the end of the hallway. I should turn left to find the TV. Path 2 leads left which matches the next part of my instructions.", "action": "2", "progress": "Reach the end of the hallway, now turn left to find the TV", "landmarks": "Hallway, red picture frames"}}
+Example for complex task: {{"reasoning": "The instruction is "go straight in the hallway until the end, then turn left, then find the TV". Given previous steps, I am at the end of the hallway. I should turn left. Path 2 leads left which matches the next part of my instructions.", "action": "2", "progress": "Reach the end of the hallway, now turn left", "landmarks": "Hallway, red picture frames"}}
 
 Output your response as a JSON object with these keys:
 "reasoning": Your analysis of the current situation and plan
@@ -147,54 +147,27 @@ class VLMNavigationAgent:
             }
             return event
         
+        # Calculate move distance based on depth and boundary point
+        move_distance = self.max_distance_to_move
+        if action_info["boundary_point"] is not None and self.depth is not None:
+            boundary_x, boundary_y = action_info["boundary_point"]
+            boundary_distance = self.depth[boundary_y, boundary_x]  # Get depth in meters
+            move_distance = min(2/3 * boundary_distance, self.max_distance_to_move)
+        
         # Otherwise, rotate to the specific degree and move forward
         rotation_action = "RotateLeft" if degree < 0 else "RotateRight"
         event = self.env.step(rotation_action, degrees=abs(degree))
-        event = self.env.step("MoveAhead", magnitude=self.max_distance_to_move)
+        event = self.env.step("MoveAhead", magnitude=move_distance)
 
         # update self.memory with the action
         self.memory.get_last_action().movement_info = {
             "action": rotation_action,
             "degrees": abs(degree),
-            "move_distance": self.max_distance_to_move
+            "move_distance": move_distance
         }
 
         return event
-
-    def update_memory_with_action(self, action_number, actions_info, reasoning):
-        """Update memory with the current action and state"""
-        
-        # Update explored area
-        self.memory.update_explored_area(self.view, self.depth)
-        
-        # Find the action info for the chosen action number
-        action_info = next((a for a in actions_info if a["action_number"] == action_number), None)
-        if action_info is None:
-            return
-            
-        # Calculate move distance if applicable
-        move_distance = None
-        if action_info["boundary_point"] is not None and self.depth is not None:
-            boundary_x, boundary_y = action_info["boundary_point"]
-            boundary_distance = self.depth[boundary_y, boundary_x]  # Get depth in meters
-            move_distance = min(2/3 * boundary_distance, self.max_distance_to_move)
-            
-        # Get turning degree
-        turning_degree = 180 if action_number == 0 else action_info["turning_degree"]
-        
-        # Record the action with meaningful movement information
-        action_record = {
-            "turning_degree": turning_degree,
-            "move_distance": move_distance,
-            "reasoning": reasoning,
-            "step_number": self.step_number
-        }
-        self.memory.add_action(action_record)
-        
-        # Check for repeating patterns
-        if self.memory.is_repeating_pattern():
-            print("Warning: Agent detected in repeating pattern of actions")
-
+    
     def check_task_completion(self, target: str, current_view: np.ndarray) -> Tuple[bool, str]:
         """Check if the navigation task is complete"""
         completion_prompt = f"""You are a robot navigating a house. Your task is: {target}

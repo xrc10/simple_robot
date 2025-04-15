@@ -42,6 +42,10 @@ def read_text_file(file_path):
 def main():
     st.title("Robot Navigation Visualization")
     
+    # Initialize session state for step tracking
+    if 'step_index' not in st.session_state:
+        st.session_state.step_index = 0
+    
     # Check if views directory exists
     if not os.path.exists("views"):
         st.error("Views directory not found. Please run the simulation first.")
@@ -70,9 +74,22 @@ def main():
     col1, col2 = st.columns([1, 3])
     with col1:
         step_options = [f"Step {i}" for i in range(len(step_folders))]
-        selected_step = st.selectbox("Select Step", step_options)
+        selected_step = st.selectbox("Select Step", step_options, index=st.session_state.step_index, key="step_selector")
         step_index = int(selected_step.split()[1])
         selected_folder = step_folders[step_index]
+        
+        # Add navigation buttons
+        nav_col1, nav_col2 = st.columns(2)
+        with nav_col1:
+            if step_index > 0:
+                if st.button("← Previous"):
+                    st.session_state.step_index = step_index - 1
+                    st.rerun()
+        with nav_col2:
+            if step_index < len(step_folders) - 1:
+                if st.button("Next →"):
+                    st.session_state.step_index = step_index + 1
+                    st.rerun()
     
     # Display step visualization
     with st.container():
@@ -131,20 +148,6 @@ def main():
         if completion_parsed:
             with st.expander("Completion Details"):
                 st.json(completion_parsed)
-    
-    # Step navigation
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col1:
-        if step_index > 0:
-            if st.button("Previous Step"):
-                st.session_state.step_index = step_index - 1
-                st.rerun()
-    
-    with col3:
-        if step_index < len(step_folders) - 1:
-            if st.button("Next Step"):
-                st.session_state.step_index = step_index + 1
-                st.rerun()
 
 if __name__ == "__main__":
     main()
